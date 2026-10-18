@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kontroler Penalti</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #ecf0f1; }
+        .role-banner { font-size: 24px; font-weight: bold; padding: 20px; color: white; border-radius: 10px; margin-bottom: 30px; }
+        .kicker { background-color: #e74c3c; } /* Merah untuk penendang */
+        .keeper { background-color: #2980b9; } /* Biru untuk kiper */
+        
+        .btn-container { display: flex; flex-direction: column; gap: 15px; }
+        .btn-action { padding: 20px; font-size: 20px; font-weight: bold; background: #34495e; color: white; border: none; border-radius: 10px; }
+        .btn-action:active { background: #2c3e50; }
+        .btn-action:disabled { background: #bdc3c7; color: #7f8c8d; }
+    </style>
+</head>
+<body>
+    <div id="role-banner" class="role-banner kicker">Menunggu Lawan...</div>
+    
+    <h3 id="instruction">Tunggu instruksi...</h3>
+
+    <div class="btn-container">
+        <button class="btn-action" onclick="sendChoice('kiri')" disabled>⬅️ KIRI</button>
+        <button class="btn-action" onclick="sendChoice('tengah')" disabled>⬆️ TENGAH</button>
+        <button class="btn-action" onclick="sendChoice('kanan')" disabled>➡️ KANAN</button>
+    </div>
+
+    <script>
+        const socket = io();
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room');
+        const playerName = prompt("Masukkan namamu:") || "Pemain";
+
+        let myRole = '';
+
+        if (roomId) {
+            socket.emit('joinRoom', roomId, playerName);
+        }
+
+        socket.on('joinSuccess', (data) => {
+            updateRoleUI(data.role);
+        });
+
+        socket.on('gameStart', (game) => {
+            enableButtons();
+        });
+
+        socket.on('newRound', (game) => {
+            // Cari role kita di ronde baru
+            const me = game.players.find(p => p.name === playerName);
+            if (me) {
+                updateRoleUI(me.role);
+                enableButtons();
+            }
+        });
+
+        socket.on('roundResult', (data) => {
+            document.getElementById('instruction').innerText = "Melihat hasil di layar...";
+        });
+
+        function sendChoice(direction) {
+            socket.emit('playerChoice', { roomId: roomId, direction: direction });
+            
+            // Matikan tombol setelah memilih
+            const buttons = document.querySelectorAll('.btn-action');
+            buttons.forEach(btn => btn.disabled = true);
+            document.getElementById('instruction').innerText = "Pilihan dikunci! Menunggu lawan...";
+        }
+
+        socket.on('gameOver', (winner) => {
+            const banner = document.getElementById('role-banner');
+            banner.className = 'role-banner'; // Hapus warna merah/biru
+            banner.style.background = '#f39c12'; // Ganti warna emas
+            banner.innerText = "🏆 PERTANDINGAN SELESAI 🏆";
+            
+            document.getElementById('instruction').innerText = `${winner.name} keluar sebagai pemenang!`;
+            
+            // Matikan semua tombol
+            const buttons = document.querySelectorAll('.btn-action');
+            buttons.forEach(btn => btn.disabled = true);
+        });
+
+        function updateRoleUI(role) {
+            myRole = role;
+            const banner = document.getElementById('role-banner');
+            const instruction = document.getElementById('instruction');
+            
+            if (role === 'kicker') {
+                banner.className = 'role-banner kicker';
+                banner.innerText = "KAMU PENENDANG ⚽";
+                instruction.innerText = "Pilih arah tendanganmu!";
+            } else {
+                banner.className = 'role-banner keeper';
+                banner.innerText = "KAMU KIPER 🧤";
+                instruction.innerText = "Pilih arah lompatan untuk menepis!";
+            }
+        }
+
+        function enableButtons() {
+            const buttons = document.querySelectorAll('.btn-action');
+            buttons.forEach(btn => btn.disabled = false);
+            updateRoleUI(myRole); // Reset teks instruksi
+        }
+    </script>
+</body>
+</html>

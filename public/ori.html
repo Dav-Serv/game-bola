@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Adu Penalti 1v1 - Animasi Karakter</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; margin: 0; background-color: #1e272e; color: white; overflow: hidden; }
+        
+        /* LOBBY AREA */
+        #lobby { margin-top: 50px; }
+        #qrcode { display: inline-block; background: white; padding: 20px; border-radius: 10px; margin: 20px; }
+        
+        /* TOP BAR (PAPAN SKOR AGAR TIDAK MENUTUPI LAPANGAN) */
+        #top-bar { position: absolute; top: 0; left: 0; width: 100%; height: 70px; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .score-board { font-size: 26px; font-weight: bold; }
+        #status-text { font-size: 16px; color: #f1c40f; margin-top: 5px; }
+
+        /* GAME ARENA (LAPANGAN) */
+        #game-arena { display: none; height: 100vh; background: repeating-linear-gradient(0deg, #27ae60, #27ae60 50px, #2ecc71 50px, #2ecc71 100px); position: relative; padding-top: 70px; /* Jarak untuk top-bar */ }
+
+        /* TEKS HASIL (GOL / GAGAL) */
+        #result-text { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) scale(0.5); width: 80%; font-size: 45px; font-weight: bold; text-transform: uppercase; text-shadow: 4px 4px 15px black; opacity: 0; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 30; pointer-events: none; background: rgba(0,0,0,0.6); padding: 20px; border-radius: 15px; }
+        #result-text.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+        /* GARIS LAPANGAN (Disesuaikan posisinya) */
+        .goal-box { position: absolute; top: 90px; left: 35%; width: 30%; height: 90px; border: 5px solid rgba(255,255,255,0.8); border-top: none; }
+        .penalty-box { position: absolute; top: 90px; left: 20%; width: 60%; height: 260px; border: 5px solid rgba(255,255,255,0.8); border-top: none; }
+        .penalty-arc { position: absolute; top: 350px; left: 40%; width: 20%; height: 80px; border: 5px solid rgba(255,255,255,0.8); border-top: none; border-radius: 0 0 100px 100px; border-left: none; border-right: none; }
+        .penalty-spot { position: absolute; top: 290px; left: 50%; transform: translateX(-50%); width: 12px; height: 12px; background: white; border-radius: 50%; }
+
+        /* ---------------------------------- */
+        /* CSS ANIMASI BOLA */
+        /* ---------------------------------- */
+        .ball { position: absolute; top: 280px; left: 50%; width: 32px; height: 32px; background: radial-gradient(circle at 10px 10px, #fff, #bdc3c7); border: 2px solid #2c3e50; border-radius: 50%; transform: translateX(-50%) rotate(0deg); z-index: 4; transition: top 0.4s ease-out, left 0.4s ease-out, transform 0.4s ease-out; box-shadow: 3px 3px 6px rgba(0,0,0,0.4); }
+        /* Arah Bola */
+        .ball.kiri { top: 120px; left: 38%; transform: translateX(-50%) rotate(-720deg); }
+        .ball.kanan { top: 120px; left: 62%; transform: translateX(-50%) rotate(720deg); }
+        .ball.tengah { top: 100px; left: 50%; transform: translateX(-50%) rotate(360deg); }
+
+        /* ---------------------------------- */
+        /* CSS KARAKTER (TANPA EMOJI) */
+        /* ---------------------------------- */
+        .css-char { position: absolute; width: 50px; height: 100px; transform: translateX(-50%); z-index: 5; transition: all 0.5s ease; }
+        .head { width: 34px; height: 34px; background: #f39c12; border-radius: 50%; position: absolute; left: 8px; top: 0; box-shadow: inset -3px -3px 0 rgba(0,0,0,0.2); z-index: 2;}
+        .torso { width: 40px; height: 45px; position: absolute; left: 5px; top: 35px; border-radius: 8px; z-index: 1;}
+        .arm { width: 12px; height: 40px; background: #f39c12; position: absolute; top: 38px; border-radius: 6px; transition: all 0.3s; z-index: 0;}
+        .arm.left { left: -4px; transform: rotate(15deg); transform-origin: top center; }
+        .arm.right { right: -4px; transform: rotate(-15deg); transform-origin: top center; }
+        .leg { width: 14px; height: 40px; position: absolute; top: 75px; border-radius: 6px; transition: all 0.3s; z-index: 0;}
+        .leg.left { left: 8px; }
+        .leg.right { right: 8px; }
+
+        /* --- WARNA PENENDANG --- */
+        .kicker-char { top: 380px; left: 50%; }
+        .kicker-char .torso { background: #e74c3c; } /* Baju Merah */
+        .kicker-char .leg { background: #c0392b; }
+        /* Animasi Lari & Menendang */
+        .kicker-char.kick { top: 310px; }
+        .kicker-char.kick .leg.right { transform: rotate(-50deg) translateY(-5px); transform-origin: top center; }
+        .kicker-char.kick .arm.left { transform: rotate(45deg); }
+        
+        /* --- WARNA KIPER --- */
+        .keeper-char { top: 150px; left: 50%; }
+        .keeper-char .torso { background: #3498db; } /* Baju Biru */
+        .keeper-char .leg { background: #2980b9; }
+        .keeper-char .head { background: #e67e22; }
+        .keeper-char .arm { background: #e67e22; }
+        
+        /* Animasi Lompatan Kiper */
+        .keeper-char.kiri { left: 37%; top: 130px; transform: translateX(-50%) rotate(-65deg); }
+        .keeper-char.kiri .arm.left { transform: rotate(140deg); }
+        .keeper-char.kiri .arm.right { transform: rotate(-20deg); }
+        .keeper-char.kiri .leg.left { transform: rotate(-30deg); }
+        
+        .keeper-char.kanan { left: 63%; top: 130px; transform: translateX(-50%) rotate(65deg); }
+        .keeper-char.kanan .arm.right { transform: rotate(-140deg); }
+        .keeper-char.kanan .arm.left { transform: rotate(20deg); }
+        .keeper-char.kanan .leg.right { transform: rotate(30deg); }
+        
+        .keeper-char.tengah { transform: translateX(-50%) translateY(-25px); }
+        .keeper-char.tengah .arm.left { transform: rotate(150deg); }
+        .keeper-char.tengah .arm.right { transform: rotate(-150deg); }
+        .keeper-char.tengah .leg { transform: rotate(10deg); }
+
+    </style>
+</head>
+<body>
+    <!-- LOBBY -->
+    <div id="lobby">
+        <h1>ROOM ADU PENALTI ⚽</h1>
+        <h2 id="room-code">Generating code...</h2>
+        <div id="qrcode"></div>
+        <h3>Menunggu 2 Pemain...</h3>
+        <ul id="player-list" style="list-style: none; padding: 0; font-size: 20px;"></ul>
+    </div>
+
+    <!-- LAPANGAN -->
+    <div id="game-arena">
+        <!-- Papan Skor dipindah ke atas lapangan -->
+        <div id="top-bar">
+            <div class="score-board" id="score-board">Pemain 1 (0) - (0) Pemain 2</div>
+            <div id="status-text">Bersiap untuk Ronde 1...</div>
+        </div>
+        
+        <!-- Garis Lapangan -->
+        <div class="penalty-box"></div>
+        <div class="goal-box"></div>
+        <div class="penalty-arc"></div>
+        <div class="penalty-spot"></div>
+
+        <!-- Kiper (Karakter CSS) -->
+        <div class="css-char keeper-char" id="keeper-visual">
+            <div class="head"></div>
+            <div class="arm left"></div>
+            <div class="torso"></div>
+            <div class="arm right"></div>
+            <div class="leg left"></div>
+            <div class="leg right"></div>
+        </div>
+
+        <!-- Bola -->
+        <div class="ball" id="ball-visual"></div>
+
+        <!-- Penendang (Karakter CSS) -->
+        <div class="css-char kicker-char" id="kicker-visual">
+            <div class="head"></div>
+            <div class="arm left"></div>
+            <div class="torso"></div>
+            <div class="arm right"></div>
+            <div class="leg left"></div>
+            <div class="leg right"></div>
+        </div>
+
+        <!-- Teks Hasil (Ditengahkan) -->
+        <div id="result-text"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentRoom = '';
+
+        socket.emit('createRoom');
+
+        socket.on('roomCreated', (roomId) => {
+            currentRoom = roomId;
+            document.getElementById('room-code').innerText = "KODE ROOM: " + roomId;
+            
+            // PENTING: Ganti dengan IP Address Laptopmu!
+            const playUrl = `http://192.168.0.108:3000/play.html?room=${roomId}`;
+            new QRCode(document.getElementById("qrcode"), { text: playUrl, width: 220, height: 220 });
+        });
+
+        socket.on('updateLobby', (players) => {
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            players.forEach(p => {
+                list.innerHTML += `<li>✅ <b style="color:#2ecc71;">${p.name}</b> siap di lapangan!</li>`;
+            });
+        });
+
+        socket.on('gameStart', (game) => {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game-arena').style.display = 'block';
+            updateScoreBoard(game.players);
+        });
+
+        socket.on('playerMadeChoice', (data) => {
+            document.getElementById('status-text').innerText = `${data.name} sudah mengunci pilihan!`;
+        });
+
+        socket.on('roundResult', (data) => {
+            const kicker = document.getElementById('kicker-visual');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            const resultText = document.getElementById('result-text');
+
+            document.getElementById('status-text').innerText = "Menembak!!!";
+
+            // 1. Kicker maju dan mengayunkan kaki
+            kicker.classList.add('kick');
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Adu Penalti 1v1 - Animasi Karakter</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; margin: 0; background-color: #1e272e; color: white; overflow: hidden; }
+        
+        /* LOBBY AREA */
+        #lobby { margin-top: 50px; }
+        #qrcode { display: inline-block; background: white; padding: 20px; border-radius: 10px; margin: 20px; }
+        
+        /* TOP BAR (PAPAN SKOR AGAR TIDAK MENUTUPI LAPANGAN) */
+        #top-bar { position: absolute; top: 0; left: 0; width: 100%; height: 70px; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .score-board { font-size: 26px; font-weight: bold; }
+        #status-text { font-size: 16px; color: #f1c40f; margin-top: 5px; }
+
+        /* GAME ARENA (LAPANGAN) */
+        #game-arena { display: none; height: 100vh; background: repeating-linear-gradient(0deg, #27ae60, #27ae60 50px, #2ecc71 50px, #2ecc71 100px); position: relative; padding-top: 70px; /* Jarak untuk top-bar */ }
+
+        /* TEKS HASIL (GOL / GAGAL) */
+        #result-text { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) scale(0.5); width: 80%; font-size: 45px; font-weight: bold; text-transform: uppercase; text-shadow: 4px 4px 15px black; opacity: 0; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 30; pointer-events: none; background: rgba(0,0,0,0.6); padding: 20px; border-radius: 15px; }
+        #result-text.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+        /* GARIS LAPANGAN (Disesuaikan posisinya) */
+        .goal-box { position: absolute; top: 90px; left: 35%; width: 30%; height: 90px; border: 5px solid rgba(255,255,255,0.8); border-top: none; }
+        .penalty-box { position: absolute; top: 90px; left: 20%; width: 60%; height: 260px; border: 5px solid rgba(255,255,255,0.8); border-top: none; }
+        .penalty-arc { position: absolute; top: 350px; left: 40%; width: 20%; height: 80px; border: 5px solid rgba(255,255,255,0.8); border-top: none; border-radius: 0 0 100px 100px; border-left: none; border-right: none; }
+        .penalty-spot { position: absolute; top: 290px; left: 50%; transform: translateX(-50%); width: 12px; height: 12px; background: white; border-radius: 50%; }
+
+        /* ---------------------------------- */
+        /* CSS ANIMASI BOLA */
+        /* ---------------------------------- */
+        .ball { position: absolute; top: 280px; left: 50%; width: 32px; height: 32px; background: radial-gradient(circle at 10px 10px, #fff, #bdc3c7); border: 2px solid #2c3e50; border-radius: 50%; transform: translateX(-50%) rotate(0deg); z-index: 4; transition: top 0.4s ease-out, left 0.4s ease-out, transform 0.4s ease-out; box-shadow: 3px 3px 6px rgba(0,0,0,0.4); }
+        /* Arah Bola */
+        .ball.kiri { top: 120px; left: 38%; transform: translateX(-50%) rotate(-720deg); }
+        .ball.kanan { top: 120px; left: 62%; transform: translateX(-50%) rotate(720deg); }
+        .ball.tengah { top: 100px; left: 50%; transform: translateX(-50%) rotate(360deg); }
+
+        /* ---------------------------------- */
+        /* CSS KARAKTER (TANPA EMOJI) */
+        /* ---------------------------------- */
+        .css-char { position: absolute; width: 50px; height: 100px; transform: translateX(-50%); z-index: 5; transition: all 0.5s ease; }
+        .head { width: 34px; height: 34px; background: #f39c12; border-radius: 50%; position: absolute; left: 8px; top: 0; box-shadow: inset -3px -3px 0 rgba(0,0,0,0.2); z-index: 2;}
+        .torso { width: 40px; height: 45px; position: absolute; left: 5px; top: 35px; border-radius: 8px; z-index: 1;}
+        .arm { width: 12px; height: 40px; background: #f39c12; position: absolute; top: 38px; border-radius: 6px; transition: all 0.3s; z-index: 0;}
+        .arm.left { left: -4px; transform: rotate(15deg); transform-origin: top center; }
+        .arm.right { right: -4px; transform: rotate(-15deg); transform-origin: top center; }
+        .leg { width: 14px; height: 40px; position: absolute; top: 75px; border-radius: 6px; transition: all 0.3s; z-index: 0;}
+        .leg.left { left: 8px; }
+        .leg.right { right: 8px; }
+
+        /* --- WARNA PENENDANG --- */
+        .kicker-char { top: 380px; left: 50%; }
+        .kicker-char .torso { background: #e74c3c; } /* Baju Merah */
+        .kicker-char .leg { background: #c0392b; }
+        /* Animasi Lari & Menendang */
+        .kicker-char.kick { top: 310px; }
+        .kicker-char.kick .leg.right { transform: rotate(-50deg) translateY(-5px); transform-origin: top center; }
+        .kicker-char.kick .arm.left { transform: rotate(45deg); }
+        
+        /* --- WARNA KIPER --- */
+        .keeper-char { top: 150px; left: 50%; }
+        .keeper-char .torso { background: #3498db; } /* Baju Biru */
+        .keeper-char .leg { background: #2980b9; }
+        .keeper-char .head { background: #e67e22; }
+        .keeper-char .arm { background: #e67e22; }
+        
+        /* Animasi Lompatan Kiper */
+        .keeper-char.kiri { left: 37%; top: 130px; transform: translateX(-50%) rotate(-65deg); }
+        .keeper-char.kiri .arm.left { transform: rotate(140deg); }
+        .keeper-char.kiri .arm.right { transform: rotate(-20deg); }
+        .keeper-char.kiri .leg.left { transform: rotate(-30deg); }
+        
+        .keeper-char.kanan { left: 63%; top: 130px; transform: translateX(-50%) rotate(65deg); }
+        .keeper-char.kanan .arm.right { transform: rotate(-140deg); }
+        .keeper-char.kanan .arm.left { transform: rotate(20deg); }
+        .keeper-char.kanan .leg.right { transform: rotate(30deg); }
+        
+        .keeper-char.tengah { transform: translateX(-50%) translateY(-25px); }
+        .keeper-char.tengah .arm.left { transform: rotate(150deg); }
+        .keeper-char.tengah .arm.right { transform: rotate(-150deg); }
+        .keeper-char.tengah .leg { transform: rotate(10deg); }
+
+    </style>
+</head>
+<body>
+    <!-- LOBBY -->
+    <div id="lobby">
+        <h1>ROOM ADU PENALTI ⚽</h1>
+        <h2 id="room-code">Generating code...</h2>
+        <div id="qrcode"></div>
+        <h3>Menunggu 2 Pemain...</h3>
+        <ul id="player-list" style="list-style: none; padding: 0; font-size: 20px;"></ul>
+    </div>
+
+    <!-- LAPANGAN -->
+    <div id="game-arena">
+        <!-- Papan Skor dipindah ke atas lapangan -->
+        <div id="top-bar">
+            <div class="score-board" id="score-board">Pemain 1 (0) - (0) Pemain 2</div>
+            <div id="status-text">Bersiap untuk Ronde 1...</div>
+        </div>
+        192.168.1.5
+        <!-- Garis Lapangan -->
+        <div class="penalty-box"></div>
+        <div class="goal-box"></div>
+        <div class="penalty-arc"></div>
+        <div class="penalty-spot"></div>
+
+        <!-- Kiper (Karakter CSS) -->
+        <div class="css-char keeper-char" id="keeper-visual">
+            <div class="head"></div>
+            <div class="arm left"></div>
+            <div class="torso"></div>
+            <div class="arm right"></div>
+            <div class="leg left"></div>
+            <div class="leg right"></div>
+        </div>
+
+        <!-- Bola -->
+        <div class="ball" id="ball-visual"></div>
+
+        <!-- Penendang (Karakter CSS) -->
+        <div class="css-char kicker-char" id="kicker-visual">
+            <div class="head"></div>
+            <div class="arm left"></div>
+            <div class="torso"></div>
+            <div class="arm right"></div>
+            <div class="leg left"></div>
+            <div class="leg right"></div>
+        </div>
+
+        <!-- Teks Hasil (Ditengahkan) -->
+        <div id="result-text"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentRoom = '';
+
+        socket.emit('createRoom');
+
+        socket.on('roomCreated', (roomId) => {
+            currentRoom = roomId;
+            document.getElementById('room-code').innerText = "KODE ROOM: " + roomId;
+            
+            // PENTING: Ganti dengan IP Address Laptopmu!
+            const playUrl = `http://192.168.0.108:3000/play.html?room=${roomId}`;
+            new QRCode(document.getElementById("qrcode"), { text: playUrl, width: 220, height: 220 });
+        });
+
+        socket.on('updateLobby', (players) => {
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            players.forEach(p => {
+                list.innerHTML += `<li>✅ <b style="color:#2ecc71;">${p.name}</b> siap di lapangan!</li>`;
+            });
+        });
+
+        socket.on('gameStart', (game) => {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game-arena').style.display = 'block';
+            updateScoreBoard(game.players);
+        });
+
+        socket.on('playerMadeChoice', (data) => {
+            document.getElementById('status-text').innerText = `${data.name} sudah mengunci pilihan!`;
+        });
+
+        socket.on('roundResult', (data) => {
+            const kicker = document.getElementById('kicker-visual');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            const resultText = document.getElementById('result-text');
+
+            document.getElementById('status-text').innerText = "Menembak!!!";
+
+            // 1. Kicker maju dan mengayunkan kaki
+            kicker.classList.add('kick');
+
+            setTimeout(() => {
+                // 2. Bola meluncur berputar & Kiper melompat
+                ball.classList.add(data.kickerChoice);
+                keeper.classList.add(data.keeperChoice);
+
+                setTimeout(() => {
+                    // 3. Menampilkan teks hasil di tengah layar
+                    resultText.innerText = data.msg;
+                    resultText.style.color = data.isGoal ? '#2ecc71' : '#e74c3c';
+                    resultText.classList.add('show');
+                    
+                    updateScoreBoard(data.players);
+                }, 400); // Waktu bola sampai gawang
+            }, 300); // Jeda lari sebelum menendang
+        });
+
+        socket.on('gameOver', (winner) => {
+            const resultText = document.getElementById('result-text');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            
+            // Tampilkan pengumuman pemenang
+            resultText.innerHTML = `🏆 MATCH SELESAI 🏆<br>${winner.name} MENANG!`;
+            resultText.style.color = '#f1c40f'; // Warna emas
+            resultText.classList.add('show');
+            
+            document.getElementById('status-text').innerText = "Memulai ulang pertandingan dalam 5 detik...";
+            
+            // Bersihkan lapangan
+            ball.style.display = 'none';
+        });
+
+        socket.on('newRound', (game) => {
+            document.getElementById('ball-visual').style.display = 'block';
+            const kicker = document.getElementById('kicker-visual');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            const resultText = document.getElementById('result-text');
+
+            // Reset semua class animasi (Kembali posisi awal)
+            kicker.classList.remove('kick');
+            ball.className = 'ball';
+            keeper.className = 'css-char keeper-char';
+
+            resultText.classList.remove('show');
+            document.getElementById('status-text').innerText = `Ronde ${game.round} Dimulai!`;
+        });
+
+        function updateScoreBoard(players) {
+            const p1 = players[0];
+            const p2 = players[1];
+            document.getElementById('score-board').innerHTML = `<span style="color:#e74c3c">${p1.name}</span> (${p1.score}) - (${p2.score}) <span style="color:#3498db">${p2.name}</span>`;
+        }
+    </script>
+</body>
+</html>
+            setTimeout(() => {
+                // 2. Bola meluncur berputar & Kiper melompat
+                ball.classList.add(data.kickerChoice);
+                keeper.classList.add(data.keeperChoice);
+
+                setTimeout(() => {
+                    // 3. Menampilkan teks hasil di tengah layar
+                    resultText.innerText = data.msg;
+                    resultText.style.color = data.isGoal ? '#2ecc71' : '#e74c3c';
+                    resultText.classList.add('show');
+                    
+                    updateScoreBoard(data.players);
+                }, 400); // Waktu bola sampai gawang
+            }, 300); // Jeda lari sebelum menendang
+        });
+
+        socket.on('gameOver', (winner) => {
+            const resultText = document.getElementById('result-text');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            
+            // Tampilkan pengumuman pemenang
+            resultText.innerHTML = `🏆 MATCH SELESAI 🏆<br>${winner.name} MENANG!`;
+            resultText.style.color = '#f1c40f'; // Warna emas
+            resultText.classList.add('show');
+            
+            document.getElementById('status-text').innerText = "Memulai ulang pertandingan dalam 5 detik...";
+            
+            // Bersihkan lapangan
+            ball.style.display = 'none';
+        });
+
+        socket.on('newRound', (game) => {
+            document.getElementById('ball-visual').style.display = 'block';
+            const kicker = document.getElementById('kicker-visual');
+            const ball = document.getElementById('ball-visual');
+            const keeper = document.getElementById('keeper-visual');
+            const resultText = document.getElementById('result-text');
+
+            // Reset semua class animasi (Kembali posisi awal)
+            kicker.classList.remove('kick');
+            ball.className = 'ball';
+            keeper.className = 'css-char keeper-char';
+
+            resultText.classList.remove('show');
+            document.getElementById('status-text').innerText = `Ronde ${game.round} Dimulai!`;
+        });
+
+        function updateScoreBoard(players) {
+            const p1 = players[0];
+            const p2 = players[1];
+            document.getElementById('score-board').innerHTML = `<span style="color:#e74c3c">${p1.name}</span> (${p1.score}) - (${p2.score}) <span style="color:#3498db">${p2.name}</span>`;
+        }
+    </script>
+</body>
+</html>
